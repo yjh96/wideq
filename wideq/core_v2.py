@@ -2,7 +2,7 @@
 """
 import base64
 import uuid
-from urllib.parse import urljoin, urlencode, urlparse, parse_qs, quote
+from urllib.parse import urljoin, urlencode, urlparse, parse_qs
 import hashlib
 import hmac
 import datetime
@@ -34,44 +34,8 @@ OAUTH_SECRET_KEY = 'c053c2a6ddeb7ad97cb0eed0dcb31cf8'
 DATE_FORMAT = '%a, %d %b %Y %H:%M:%S +0000'
 
 
-def gen_uuid():
-    return str(uuid.uuid4())
-
-
-def oauth2_signature(message, secret):
-    """Get the base64-encoded SHA-1 HMAC digest of a string, as used in
-    OAauth2 request signatures.
-
-    Both the `secret` and `message` are given as text strings. We use
-    their UTF-8 equivalents.
-    """
-
-    secret_bytes = secret.encode('utf8')
-    hashed = hmac.new(secret_bytes, message.encode('utf8'), hashlib.sha1)
-    digest = hashed.digest()
-    return base64.b64encode(digest)
-
-
-def get_list(obj, key):
-    """Look up a list using a key from an object.
-
-    If `obj[key]` is a list, return it unchanged. If is something else,
-    return a single-element list containing it. If the key does not
-    exist, return an empty list.
-    """
-    try:
-        val = obj[key]
-    except KeyError:
-        return []
-
-    if isinstance(val, list):
-        return val
-    else:
-        return [val]
-
-
 def thinq2_headers(extra_headers={}, access_token=None, user_number=None, country="US", language="en-US"):
-    
+
     headers = {
         'Accept': 'application/json',
         'Content-type': 'application/json;charset=UTF-8',
@@ -91,14 +55,14 @@ def thinq2_headers(extra_headers={}, access_token=None, user_number=None, countr
 
     if access_token:
         headers['x-emp-token'] = access_token
-   
+
     if user_number:
         headers['x-user-no'] = user_number
 
     return { **headers, **extra_headers }
 
 def thinq2_get(url, access_token=None, user_number=None, headers={}, country="US", language="en-US"):
-    
+
     res = requests.get(url, headers=thinq2_headers(
         access_token=access_token, user_number=user_number, extra_headers=headers, country=country, language=language))
 
@@ -113,14 +77,14 @@ def thinq2_get(url, access_token=None, user_number=None, headers={}, country="US
                 raise NotConnectedError()
             else:
                 raise APIError(code, "error")
-    
+
     return out['result']
 
 def gateway_info(country, language):
     """ TODO
-    """ 
+    """
     return thinq2_get(V2_GATEWAY_URL, country=country, language=language)
-    
+
 def parse_oauth_callback(url):
     """Parse the URL to which an OAuth login redirected to obtain two
     tokens: an access token for API credentials, and a refresh token for
@@ -131,14 +95,14 @@ def parse_oauth_callback(url):
     return params['oauth2_backend_url'][0], params['code'][0], params['user_number'][0]
 
 def auth_request(oauth_url, data):
-    """Use an auth code to log into the v2 API and obtain an access token 
+    """Use an auth code to log into the v2 API and obtain an access token
     and refresh token.
     """
     auth_path = '/oauth/1.0/oauth2/token'
     url = urljoin(oauth_url, '/oauth/1.0/oauth2/token')
     timestamp = datetime.datetime.utcnow().strftime(DATE_FORMAT)
     req_url = '{}?{}'.format(auth_path, urlencode(data))
-    sig = oauth2_signature('{}\n{}'.format(req_url, timestamp), OAUTH_SECRET_KEY)
+    sig = core.oauth2_signature('{}\n{}'.format(req_url, timestamp), OAUTH_SECRET_KEY)
 
     headers = {
         'x-lge-appkey': CLIENT_ID,
@@ -156,7 +120,7 @@ def auth_request(oauth_url, data):
 
 def login(oauth_url, auth_code):
     """Get a new access_token using an authorization_code
-    
+
     May raise a `tokenError`.
     """
 
@@ -165,7 +129,7 @@ def login(oauth_url, auth_code):
         'grant_type': 'authorization_code',
         'redirect_uri': OAUTH_REDIRECT_URI
     })
-    
+
     return out['access_token'], out['refresh_token']
 
 def refresh_auth(oauth_root, refresh_token):
@@ -186,7 +150,7 @@ class Gateway(core.Gateway):
         gw = gateway_info(country, language)
         return cls(gw['empUri'], gw['thinq2Uri'], gw['empUri'],
                    country, language)
-    
+
     def oauth_url(self):
         """Construct the URL for users to log in (in a browser) to start an
         authenticated session.
@@ -205,14 +169,6 @@ class Gateway(core.Gateway):
         })
         return '{}?{}'.format(url, query)
 
-    def dump(self):
-        return {
-            'auth_base': self.auth_base,
-            'api_root': self.api_root,
-            'oauth_root': self.oauth_root,
-            'country': self.country,
-            'language': self.language
-        }
 
 class Auth(object):
     def __init__(self, gateway, oauth_url, access_token, refresh_token, user_number):
@@ -235,11 +191,7 @@ class Auth(object):
         """Start an API session for the logged-in user. Return the
         Session object and a list of the user's devices.
         """
-        #access_token, refresh_token = login(self.oauth_url, self.auth_code,
-        #                     self.gateway.country, self.gateway.language)
-        #session_id = session_info['jsessionId']
         return Session(self), []
-        #return Session(self, session_id), get_list(session_info, 'item')
 
     def refresh(self):
         """Refresh the authentication, returning a new Auth object.
@@ -289,7 +241,7 @@ class Session(object):
 
         Return a list of dicts with information about the devices.
         """
-        return get_list(self.get2('service/application/dashboard'), 'item')
+        return core.get_list(self.get2('service/application/dashboard'), 'item')
 
     def monitor_start(self, device_id):
         """Begin monitoring a device's status.

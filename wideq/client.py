@@ -267,7 +267,6 @@ class DeviceInfo(object):
 
     @property
     def model_id(self) -> str:
-        #return self.data['modelNm']
         return self.data['modelName']
 
     @property
@@ -276,7 +275,6 @@ class DeviceInfo(object):
 
     @property
     def model_info_url(self) -> str:
-        #return self.data['modelJsonUrl']
         return self.data['modelJsonUri']
 
     @property
@@ -293,6 +291,9 @@ class DeviceInfo(object):
         """Load JSON data describing the model's capabilities.
         """
         return requests.get(self.model_info_url).json()
+
+    def __repr__(self):
+        return f"<DeviceInfo {self.data}>"
 
 
 BitValue = namedtuple('BitValue', ['options'])
