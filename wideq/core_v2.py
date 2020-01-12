@@ -35,7 +35,6 @@ DATE_FORMAT = '%a, %d %b %Y %H:%M:%S +0000'
 
 
 def thinq2_headers(extra_headers={}, access_token=None, user_number=None, country="US", language="en-US"):
-
     headers = {
         'Accept': 'application/json',
         'Content-type': 'application/json;charset=UTF-8',
@@ -227,10 +226,6 @@ class Session(object):
         url = urljoin(self.auth.gateway.api_root + '/', path)
         return lgedm_post(url, data, self.auth.access_token, self.session_id)
 
-    def post2(self, path, data=None):
-        url = urljoin(self.auth.gateway.api_root + '/', path)
-        return lgedm_post(url, data, self.auth.access_token, self.session_id)
-
     def get2(self, path):
         url = urljoin(self.auth.gateway.api_root + '/', path)
         return thinq2_get(url, self.auth.access_token, self.auth.user_number, country=self.auth.gateway.country, language=self.auth.gateway.language)
@@ -241,95 +236,3 @@ class Session(object):
         Return a list of dicts with information about the devices.
         """
         return core.get_list(self.get2('service/application/dashboard'), 'item')
-
-    def monitor_start(self, device_id):
-        """Begin monitoring a device's status.
-
-        Return a "work ID" that can be used to retrieve the result of
-        monitoring.
-        """
-
-        res = self.post('rti/rtiMon', {
-            'cmd': 'Mon',
-            'cmdOpt': 'Start',
-            'deviceId': device_id,
-            'workId': gen_uuid(),
-        })
-        return res['workId']
-
-    def monitor_poll(self, device_id, work_id):
-        """Get the result of a monitoring task.
-
-        `work_id` is a string ID retrieved from `monitor_start`. Return
-        a status result, which is a bytestring, or None if the
-        monitoring is not yet ready.
-
-        May raise a `MonitorError`, in which case the right course of
-        action is probably to restart the monitoring task.
-        """
-
-        work_list = [{'deviceId': device_id, 'workId': work_id}]
-        res = self.post('rti/rtiResult', {'workList': work_list})['workList']
-
-        # When monitoring first starts, it usually takes a few
-        # iterations before data becomes available. In the initial
-        # "warmup" phase, `returnCode` is missing from the response.
-        if 'returnCode' not in res:
-            return None
-
-        # Check for errors.
-        code = res.get('returnCode')  # returnCode can be missing.
-        if code != '0000':
-            raise MonitorError(device_id, code)
-
-        # The return data may or may not be present, depending on the
-        # monitoring task status.
-        if 'returnData' in res:
-            # The main response payload is base64-encoded binary data in
-            # the `returnData` field. This sometimes contains JSON data
-            # and sometimes other binary data.
-            return base64.b64decode(res['returnData'])
-        else:
-            return None
-
-    def monitor_stop(self, device_id, work_id):
-        """Stop monitoring a device."""
-
-        self.post('rti/rtiMon', {
-            'cmd': 'Mon',
-            'cmdOpt': 'Stop',
-            'deviceId': device_id,
-            'workId': work_id,
-        })
-
-    def set_device_controls(self, device_id, values):
-        """Control a device's settings.
-
-        `values` is a key/value map containing the settings to update.
-        """
-
-        return self.post('rti/rtiControl', {
-            'cmd': 'Control',
-            'cmdOpt': 'Set',
-            'value': values,
-            'deviceId': device_id,
-            'workId': gen_uuid(),
-            'data': '',
-        })
-
-    def get_device_config(self, device_id, key, category='Config'):
-        """Get a device configuration option.
-
-        The `category` string should probably either be "Config" or
-        "Control"; the right choice appears to depend on the key.
-        """
-
-        res = self.post('rti/rtiControl', {
-            'cmd': category,
-            'cmdOpt': 'Get',
-            'value': key,
-            'deviceId': device_id,
-            'workId': gen_uuid(),
-            'data': '',
-        })
-        return res['returnData']
