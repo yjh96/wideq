@@ -80,11 +80,6 @@ def thinq2_get(url, access_token=None, user_number=None, headers={}, country="US
 
     return out['result']
 
-def gateway_info(country, language):
-    """ TODO
-    """
-    return thinq2_get(V2_GATEWAY_URL, country=country, language=language)
-
 def parse_oauth_callback(url):
     """Parse the URL to which an OAuth login redirected to obtain two
     tokens: an access token for API credentials, and a refresh token for
@@ -145,9 +140,14 @@ def refresh_auth(oauth_root, refresh_token):
     return out['access_token']
 
 class Gateway(core.Gateway):
+    """Information about which host to use for the API (country specific).
+
+    The gateway is required on the first run to discover the endpoint.
+    """
+
     @classmethod
     def discover(cls, country, language):
-        gw = gateway_info(country, language)
+        gw = thinq2_get(V2_GATEWAY_URL, country=country, language=language)
         return cls(gw['empUri'], gw['thinq2Uri'], gw['empUri'],
                    country, language)
 
@@ -155,7 +155,6 @@ class Gateway(core.Gateway):
         """Construct the URL for users to log in (in a browser) to start an
         authenticated session.
         """
-
         url = urljoin(self.auth_base, 'spx/login/signIn')
         query = urlencode({
             'country': self.country,
