@@ -9,17 +9,26 @@ import datetime
 import requests
 from typing import Any, Dict, List, Tuple
 
-from .core_exceptions import *
-
-GATEWAY_URL = 'https://kic.lgthinq.com:46030/api/common/gatewayUriList'
-APP_KEY = 'wideq'
 SECURITY_KEY = 'nuts_securitykey'
-DATA_ROOT = 'lgedmRoot'
 SVC_CODE = 'SVC202'
 CLIENT_ID = 'LGAO221A02'
 OAUTH_SECRET_KEY = 'c053c2a6ddeb7ad97cb0eed0dcb31cf8'
-OAUTH_CLIENT_KEY = 'LGAO221A02'
 DATE_FORMAT = '%a, %d %b %Y %H:%M:%S +0000'
+
+# thinq2 (new API)
+V2_API_KEY = 'VGhpblEyLjAgU0VSVklDRQ=='
+V2_CLIENT_ID = \
+    '65260af7e8e6547b51fdccf930097c51eb9885a508d3fddfa9ee6cdec22ae1bd'
+V2_MESSAGE_ID = 'wideq'
+V2_SVC_PHASE = 'OP'
+V2_APP_LEVEL = 'PRD'
+V2_APP_OS = 'LINUX'
+V2_APP_TYPE = 'NUTS'
+V2_APP_VER = '3.0.1700'
+V2_DATA_ROOT = 'result'
+V2_GATEWAY_URL = \
+    'https://route.lgthinq.com:46030/v1/service/application/gateway-uri'
+OAUTH_REDIRECT_URI = 'https://kr.m.lgaccount.com/login/iabClose'
 
 
 def gen_uuid() -> str:
@@ -58,6 +67,46 @@ def get_list(obj, key: str) -> List[Dict[str, Any]]:
     else:
         return [val]
 
+
+class APIError(Exception):
+    """An error reported by the API."""
+
+    def __init__(self, code, message):
+        self.code = code
+        self.message = message
+
+
+class NotLoggedInError(APIError):
+    """The session is not valid or expired."""
+
+    def __init__(self):
+        pass
+
+
+class NotConnectedError(APIError):
+    """The service can't contact the specified device."""
+
+    def __init__(self):
+        pass
+
+
+class TokenError(APIError):
+    """An authentication token was rejected."""
+
+    def __init__(self):
+        pass
+
+
+class MonitorError(APIError):
+    """Monitoring a device failed, possibly because the monitoring
+    session failed and needs to be restarted.
+    """
+
+    def __init__(self, device_id, code):
+        self.device_id = device_id
+        self.code = code
+
+
 class FailedRequestError(APIError):
     """A failed request typically indicates an unsupported control on a
     device.
@@ -76,42 +125,75 @@ API_ERRORS = {
 }
 
 
-def lgedm_post(url, data=None, access_token=None, session_id=None):
-    """Make an HTTP request in the format used by the API servers.
-
-    In this format, the request POST data sent as JSON under a special
-    key; authentication sent in headers. Return the JSON data extracted
-    from the response.
-
-    The `access_token` and `session_id` are required for most normal,
-    authenticated requests. They are not required, for example, to load
-    the gateway server data or to start a session.
-    """
-
+def thinq2_headers(country: str,
+                   language: str,
+                   extra_headers: Dict[str, str] = None,
+                   access_token: str = None,
+                   user_number: str = None,
+                   ) -> Dict[str, str]:
     headers = {
-        'x-thinq-application-key': APP_KEY,
-        'x-thinq-security-key': SECURITY_KEY,
         'Accept': 'application/json',
+        'Content-type': 'application/json;charset=UTF-8',
+        'x-api-key': V2_API_KEY,
+        'x-client-id': V2_CLIENT_ID,
+        'x-country-code': country,
+        'x-language-code': language,
+        'x-message-id': V2_MESSAGE_ID,
+        'x-service-code': SVC_CODE,
+        'x-service-phase': V2_SVC_PHASE,
+        'x-thinq-app-level': V2_APP_LEVEL,
+        'x-thinq-app-os': V2_APP_OS,
+        'x-thinq-app-type': V2_APP_TYPE,
+        'x-thinq-app-ver': V2_APP_VER,
+        'x-thinq-security-key': SECURITY_KEY,
     }
     if access_token:
-        headers['x-thinq-token'] = access_token
-    if session_id:
-        headers['x-thinq-jsessionId'] = session_id
+        headers['x-emp-token'] = access_token
+    if user_number:
+        headers['x-user-no'] = user_number
+    extra_headers = extra_headers or {}
+    return {**headers, **extra_headers}
 
-    res = requests.post(url, json={DATA_ROOT: data}, headers=headers)
-    out = res.json()[DATA_ROOT]
 
-    # Check for API errors.
-    if 'returnCd' in out:
-        code = out['returnCd']
+def thinq2_get(url, access_token=None, user_number=None, headers={},
+               country="US", language="en-US") -> Dict[str, Any]:
+    """Get request to the thinq2 API"""
+    res = requests.get(url, headers=thinq2_headers(
+        access_token=access_token, user_number=user_number,
+        extra_headers=headers,
+        country=country, language=language))
+    out = res.json()
+    if 'resultCode' in out:
+        code = out['resultCode']
         if code != '0000':
-            message = out['returnMsg']
-            if code in API_ERRORS:
-                raise API_ERRORS[code](code, message)
+            if code == "0102":
+                raise NotLoggedInError()
+            elif code == "0106":
+                raise NotConnectedError()
             else:
-                raise APIError(code, message)
+                raise APIError(code, "error")
+    return out['result']
 
-    return out
+
+def auth_request(oauth_url, data):
+    """Use an auth code to log into the v2 API and obtain an access token
+    and refresh token.
+    """
+    auth_path = '/oauth/1.0/oauth2/token'
+    url = urljoin(oauth_url, '/oauth/1.0/oauth2/token')
+    timestamp = datetime.datetime.utcnow().strftime(DATE_FORMAT)
+    req_url = '{}?{}'.format(auth_path, urlencode(data))
+    sig = oauth2_signature(f'{req_url}\n{timestamp}', OAUTH_SECRET_KEY)
+    headers = {
+        'x-lge-appkey': CLIENT_ID,
+        'x-lge-oauth-signature': sig,
+        'x-lge-oauth-date': timestamp,
+        'Accept': 'application/json'
+    }
+    res = requests.post(url, headers=headers, data=data)
+    if res.status_code != 200:
+        raise TokenError()
+    return res.json()
 
 
 def oauth_url(auth_base, country, language):
@@ -132,29 +214,27 @@ def oauth_url(auth_base, country, language):
     return '{}?{}'.format(url, query)
 
 
-def parse_oauth_callback(url):
-    """Parse the URL to which an OAuth login redirected to obtain two
-    tokens: an access token for API credentials, and a refresh token for
-    getting updated access tokens.
+def parse_oauth_callback(url) -> Tuple[str, str, str]:
+    """Parse the URL to which an OAuth login redirected to obtain
+    the backend url, a token and the user ID.
     """
-
     params = parse_qs(urlparse(url).query)
-    return params['access_token'][0], params['refresh_token'][0]
+    return (params['oauth2_backend_url'][0],
+            params['code'][0],
+            params['user_number'][0])
 
 
-def login(api_root, access_token, country, language):
-    """Use an access token to log into the API and obtain a session and
-    return information about the session.
+def login(oauth_url, auth_code):
+    """Get a new access_token using an authorization_code
+
+    May raise a `tokenError`.
     """
-
-    url = urljoin(api_root + '/', 'member/login')
-    data = {
-        'countryCode': country,
-        'langCode': language,
-        'loginType': 'EMP',
-        'token': access_token,
-    }
-    return lgedm_post(url, data)
+    out = auth_request(oauth_url, {
+        'code': auth_code,
+        'grant_type': 'authorization_code',
+        'redirect_uri': OAUTH_REDIRECT_URI
+    })
+    return out['access_token'], out['refresh_token']
 
 
 def refresh_auth(oauth_root, refresh_token):
@@ -162,40 +242,12 @@ def refresh_auth(oauth_root, refresh_token):
 
     May raise a `TokenError`.
     """
-
-    token_url = urljoin(oauth_root, '/oauth2/token')
-    data = {
+    out = auth_request(oauth_root, {
         'grant_type': 'refresh_token',
-        'refresh_token': refresh_token,
-    }
+        'refresh_token': refresh_token
+    })
 
-    # The timestamp for labeling OAuth requests can be obtained
-    # through a request to the date/time endpoint:
-    # https://us.lgeapi.com/datetime
-    # But we can also just generate a timestamp.
-    timestamp = datetime.datetime.utcnow().strftime(DATE_FORMAT)
-
-    # The signature for the requests is on a string consisting of two
-    # parts: (1) a fake request URL containing the refresh token, and (2)
-    # the timestamp.
-    req_url = ('/oauth2/token?grant_type=refresh_token&refresh_token=' +
-               refresh_token)
-    sig = oauth2_signature('{}\n{}'.format(req_url, timestamp),
-                           OAUTH_SECRET_KEY)
-
-    headers = {
-        'lgemp-x-app-key': OAUTH_CLIENT_KEY,
-        'lgemp-x-signature': sig,
-        'lgemp-x-date': timestamp,
-        'Accept': 'application/json',
-    }
-
-    res = requests.post(token_url, data=data, headers=headers)
-    res_data = res.json()
-
-    if res_data['status'] != 1:
-        raise TokenError()
-    return res_data['access_token']
+    return out['access_token']
 
 
 class Gateway(object):
@@ -208,24 +260,33 @@ class Gateway(object):
 
     @classmethod
     def discover(cls, country, language) -> 'Gateway':
-        """Load information about the hosts to use for API interaction.
+        # ### FIXME: remove either auth_base or oauth_root, we set them to the same value,
+        # only one is needed with the new API
+        """Load information about the host to use for API interaction.
 
         `country` and `language` are codes, like "US" and "en-US,"
         respectively.
         """
-        gw = lgedm_post(GATEWAY_URL,
-                        {'countryCode': country, 'langCode': language})
-        return cls(gw['empUri'], gw['thinqUri'], gw['oauthUri'],
+        gw = thinq2_get(V2_GATEWAY_URL, country=country, language=language)
+        return cls(gw['empUri'], gw['thinq2Uri'], gw['empUri'],
                    country, language)
 
-    def get_tokens(self, url):
-        """Create an authentication using an OAuth callback URL.
-        """
-
-        access_token, refresh_token = parse_oauth_callback(url)
-
     def oauth_url(self):
-        return oauth_url(self.auth_base, self.country, self.language)
+        """Construct the URL for users to log in (in a browser) to start an
+        authenticated session.
+        """
+        url = urljoin(self.auth_base, 'spx/login/signIn')
+        query = urlencode({
+            'country': self.country,
+            'language': self.language,
+            'svc_list': SVC_CODE,
+            'client_id': CLIENT_ID,
+            'division': 'ha',
+            'redirect_uri': OAUTH_REDIRECT_URI,
+            'state': uuid.uuid1().hex,
+            'show_thirdparty_login': 'GGL,AMZ,FBK'
+        })
+        return '{}?{}'.format(url, query)
 
     def dump(self):
         return {
@@ -236,65 +297,82 @@ class Gateway(object):
             'language': self.language
         }
 
+
 class Auth(object):
-    def __init__(self, gateway, oauth_url, access_token, refresh_token):
+    def __init__(self, gateway: str, oauth_url: str, access_token: str,
+                 refresh_token: str, user_number: str) -> None:
         self.gateway = gateway
         self.oauth_url = oauth_url
         self.access_token = access_token
         self.refresh_token = refresh_token
+        self.user_number = user_number
 
     @classmethod
     def from_url(cls, gateway, url):
         """Create an authentication using an OAuth callback URL.
         """
-
-        access_token, refresh_token = gateway.get_tokens(url)
-        return cls(gateway, access_token, refresh_token)
+        oauth_url, auth_code, user_number = parse_oauth_callback(url)
+        access_token, refresh_token = login(oauth_url, auth_code)
+        return cls(gateway, oauth_url, access_token,
+                   refresh_token, user_number)
 
     def start_session(self) -> Tuple['Session', List[Dict[str, Any]]]:
         """Start an API session for the logged-in user. Return the
         Session object and a list of the user's devices.
         """
-        session_info = login(self.gateway.api_root, self.access_token,
-                             self.gateway.country, self.gateway.language)
-        session_id = session_info['jsessionId']
-        return Session(self, session_id), get_list(session_info, 'item')
+        return Session(self), []
 
     def refresh(self):
         """Refresh the authentication, returning a new Auth object.
         """
 
-        new_access_token = refresh_auth(self.gateway.oauth_root,
+        new_access_token = refresh_auth(self.oauth_url,
                                         self.refresh_token)
-        return Auth(self.gateway, new_access_token, self.refresh_token)
+        return Auth(self.gateway, self.oauth_url, new_access_token,
+                    self.refresh_token, self.user_number)
 
     def dump(self):
         return {
             'access_token': self.access_token,
-            'refresh_token': self.refresh_token
+            'refresh_token': self.refresh_token,
+            'oauth_url': self.oauth_url,
+            'user_number': self.user_number
         }
 
+    @classmethod
+    def load(cls, gateway, data):
+        return cls(gateway, data['oauth_url'], data['access_token'],
+                   data['refresh_token'], data['user_number'])
+
+
 class Session(object):
-    def __init__(self, auth, session_id) -> None:
+    def __init__(self, auth) -> None:
         self.auth = auth
-        self.session_id = session_id
 
-    def post(self, path, data=None):
-        """Make a POST request to the API server.
+    # def post(self, path, data=None):
+    #     """Make a POST request to the API server.
 
-        This is like `lgedm_post`, but it pulls the context for the
-        request from an active Session.
-        """
+    #     This is like `lgedm_post`, but it pulls the context for the
+    #     request from an active Session.
+    #     """
 
+    #     url = urljoin(self.auth.gateway.api_root + '/', path)
+    #     return lgedm_post(url, data, self.auth.access_token, self.session_id)
+
+    def get2(self, path):
         url = urljoin(self.auth.gateway.api_root + '/', path)
-        return lgedm_post(url, data, self.auth.access_token, self.session_id)
+        return thinq2_get(url,
+                          self.auth.access_token,
+                          self.auth.user_number,
+                          country=self.auth.gateway.country,
+                          language=self.auth.gateway.language)
 
     def get_devices(self) -> List[Dict[str, Any]]:
         """Get a list of devices associated with the user's account.
 
         Return a list of dicts with information about the devices.
         """
-        return get_list(self.post('device/deviceList'), 'item')
+        return get_list(self.get2('service/application/dashboard'), 'item')
 
     def monitor_start(self, device_id):
         """Begin monitoring a device's status.

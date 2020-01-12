@@ -9,7 +9,7 @@ import base64
 from collections import namedtuple
 from typing import Any, Dict, Generator, List, Optional
 
-from . import core_v2 as core
+from . import core
 
 DEFAULT_COUNTRY = 'US'
 DEFAULT_LANGUAGE = 'en-US'
@@ -114,10 +114,10 @@ class Client(object):
 
     @property
     def session(self) -> core.Session:
-        #print("STATR WITH AUTH %s" % self.auth)
+        # print("START WITH AUTH %s" % self.auth)
         if not self._session:
             self._session, self._devices = self.auth.start_session()
-        #print("SES %s" % self._session)
+        # print("SES %s" % self._session)
         return self._session
 
     @property
@@ -158,9 +158,7 @@ class Client(object):
         if 'auth' in state:
             data = state['auth']
             client._auth = core.Auth.load(client._gateway, data)
-
-        if 'session' in state:
-            client._session = core.Session(client.auth, state['session'])
+            client._session = core.Session(client.auth)
 
         if 'model_info' in state:
             client._model_info = state['model_info']
@@ -186,9 +184,6 @@ class Client(object):
         if self._auth:
             out['auth'] = self._auth.dump()
 
-        if self._session:
-            out['session'] = self._session.session_id
-
         out['country'] = self._country
         out['language'] = self._language
 
@@ -201,20 +196,22 @@ class Client(object):
     @classmethod
     def from_token(cls, refresh_token,
                    country=None, language=None) -> 'Client':
+        # ### FIXME this function is not yet implemented with the new API,
+        # we need the user number!
         """Construct a client using just a refresh token.
 
         This allows simpler state storage (e.g., for human-written
         configuration) but it is a little less efficient because we need
         to reload the gateway servers and restart the session.
         """
-
-        client = cls(
-            country=country or DEFAULT_COUNTRY,
-            language=language or DEFAULT_LANGUAGE,
-        )
-        client._auth = core.Auth(client.gateway, None, refresh_token)
-        client.refresh()
-        return client
+        # client = cls(
+        #     country=country or DEFAULT_COUNTRY,
+        #     language=language or DEFAULT_LANGUAGE,
+        # )
+        # client._auth = core.Auth(client.gateway, None, refresh_token)
+        # client.refresh()
+        # return client
+        assert False, "not yet implemented"
 
     def model_info(self, device: 'DeviceInfo') -> 'ModelInfo':
         """For a DeviceInfo object, get a ModelInfo object describing
