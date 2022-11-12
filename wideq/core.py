@@ -602,11 +602,11 @@ class Session(object):
         res = self.post(controlPath, data)
         return res
 
-    def     (self, device_id, start_date=str, end_date=str):
+    def get_power_data(self, device_id, start_date=str, end_date=str):
         # date format = "YYYY-MM-DD"
 
-        get_power_data = f"service/aircon/{device_id}/energy-history?period=day&startDate={start_date}&endDate={end_date}"
+        get_power_data_path = f"service/aircon/{device_id}/energy-history?period=day&startDate={start_date}&endDate={end_date}"
         res = self.get(
-            get_power_data,
+            get_power_data_path,
         )
         return res
