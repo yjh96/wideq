@@ -610,3 +610,19 @@ class Session(object):
             get_power_data_path,
         )
         return res
+
+    def get_instant_power_consumption(self, device_id):
+        get_instant_power_consumption_path = (
+            f"service/devices/{device_id}/control-sync"
+        )
+        res = self.post(
+            get_instant_power_consumption_path,
+            {
+                "ctrlKey": "energyStateCtrl",
+                "command": "Get",
+                "dataKey": "airState.energy.totalCurrent",
+                "dataValue": 0,
+            },
+        )
+
+        return res
