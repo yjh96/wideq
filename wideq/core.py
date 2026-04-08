@@ -193,6 +193,10 @@ class InvalidRequestError(APIError):
     """The server rejected a request as invalid."""
 
 
+class UseOfficialAPIError(APIError):
+    """Server suggests using the official public API (error 9012)."""
+
+
 class DeviceNotFoundError:
     """The device couldn't be found."""
 
@@ -221,6 +225,7 @@ API_ERRORS = {
     "0110": InvalidCredentialError,
     9000: InvalidRequestError,  # Surprisingly, an integer (not a string).
     9003: NotLoggedInError,  # Session Creation FailureError
+    "9012": UseOfficialAPIError,
 }
 
 

@@ -8,4 +8,5 @@ from .dryer import *  # noqa
 from .refrigerator import *  # noqa
 from .washer import *  # noqa
 
-__version__ = "2.1.0"
+__version__ = "2.1.1"
+
