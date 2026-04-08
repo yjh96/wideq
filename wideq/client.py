@@ -95,6 +95,7 @@ class Client(object):
         self._auth: Optional[core.Auth] = auth
         self._session: Optional[core.Session] = session
 
+        self._client_id: str = core._gen_client_id()
         # The last list of devices we got from the server. This is the
         # raw JSON list data describing the devices.
         self._devices: List[Dict[str, Any]] = []
@@ -124,7 +125,7 @@ class Client(object):
     @property
     def session(self) -> core.Session:
         if not self._session:
-            self._session, self._devices = self.auth.start_session()
+            self._session, self._devices = self.auth.start_session(client_id=self._client_id)
         return self._session
 
     @property
@@ -186,7 +187,13 @@ class Client(object):
             )
 
         if "session" in state:
-            client._session = core.Session(client.auth, state["session"])
+            client._session = core.Session(
+                client.auth,
+                state["session"],
+                client_id=state.get("client_id"),
+            )
+        if "client_id" in state:
+            client._client_id = state["client_id"]
 
         if "model_info" in state:
             client._model_info = state["model_info"]
@@ -214,6 +221,7 @@ class Client(object):
 
         if self._session:
             out["session"] = self._session.session_id
+        out["client_id"] = self._client_id
 
         out["country"] = self._country
         out["language"] = self._language
@@ -222,7 +230,7 @@ class Client(object):
 
     def refresh(self) -> None:
         self._auth = self.auth.refresh()
-        self._session, self._devices = self.auth.start_session()
+        self._session, self._devices = self.auth.start_session(client_id=self._client_id)
 
     @classmethod
     def from_token(
