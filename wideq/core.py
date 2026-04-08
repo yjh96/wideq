@@ -1,6 +1,7 @@
 """A low-level, general abstraction for the LG SmartThinQ API.
 """
 import base64
+import secrets
 from enum import Enum
 import uuid
 from urllib.parse import urljoin, urlencode, urlparse, parse_qs
@@ -32,11 +33,15 @@ DEFAULT_LANGUAGE = "en-US"
 # v2
 API_KEY = "VGhpblEyLjAgU0VSVklDRQ=="
 
-# the client id is a SHA512 hash of the phone MFR,MODEL,SERIAL,
-# and the build id of the thinq app it can also just be a random
-# string, we use the same client id used for oauth
-CLIENT_ID = OAUTH_CLIENT_KEY
-MESSAGE_ID = "wideq"
+
+def _gen_client_id() -> str:
+    """Generate a random per-session client ID."""
+    return secrets.token_hex(32)
+
+
+def _gen_message_id() -> str:
+    """Generate a random per-request message ID (base64 UUID)."""
+    return base64.b64encode(uuid.uuid4().bytes).decode("utf-8").rstrip("=")
 SVC_PHASE = "OP"
 APP_LEVEL = "PRD"
 APP_OS = "ANDROID"
@@ -233,6 +238,7 @@ def thinq_request(
     user_number=None,
     country=DEFAULT_COUNTRY,
     language=DEFAULT_LANGUAGE,
+    client_id=None,
 ):
     """Make an HTTP request in the format used by the API servers.
 
@@ -247,10 +253,10 @@ def thinq_request(
     headers = {
         "Accept": "application/json",
         "x-api-key": API_KEY,
-        "x-client-id": CLIENT_ID,
+        "x-client-id": client_id or OAUTH_CLIENT_KEY,
         "x-country-code": country,
         "x-language-code": language,
-        "x-message-id": MESSAGE_ID,
+        "x-message-id": _gen_message_id(),
         "x-service-code": SVC_CODE,
         "x-service-phase": SVC_PHASE,
         "x-thinq-app-level": APP_LEVEL,
@@ -297,7 +303,7 @@ def oauth_url(auth_base, country, language):
             "country": country,
             "language": language,
             "svc_list": SVC_CODE,
-            "client_id": CLIENT_ID,
+            "client_id": OAUTH_CLIENT_KEY,
             "division": "ha",
             "redirect_uri": OAUTH_REDIRECT_URI,
             "state": uuid.uuid1().hex,
@@ -362,7 +368,7 @@ def oauth_request(grant, oauth_root, token):
     )
 
     headers = {
-        "x-lge-appkey": CLIENT_ID,
+        "x-lge-appkey": OAUTH_CLIENT_KEY,
         "x-lge-oauth-signature": sig,
         "x-lge-oauth-date": timestamp,
         "Accept": "application/json",
@@ -448,11 +454,11 @@ class Auth(object):
             oauth_root,
         )
 
-    def start_session(self) -> Tuple["Session", List[Dict[str, Any]]]:
+    def start_session(self, client_id=None) -> Tuple["Session", List[Dict[str, Any]]]:
         """Start an API session for the logged-in user. Return the
         Session object and a list of the user's devices.
         """
-        return Session(self), []
+        return Session(self, client_id=client_id), []
 
     def refresh(self):
         """Refresh the authentication, returning a new Auth object."""
@@ -478,10 +484,10 @@ class Auth(object):
 
 
 class Session(object):
-    def __init__(self, auth, session_id=None) -> None:
+    def __init__(self, auth, session_id=None, client_id=None) -> None:
         self.auth = auth
         self.session_id = session_id
-
+        self.client_id = client_id
     def post(self, path, data=None):
         """Make a POST request to the API server.
 
@@ -498,6 +504,7 @@ class Session(object):
             user_number=self.auth.user_number,
             country=self.auth.gateway.country,
             language=self.auth.gateway.language,
+            client_id=self.client_id,
         )
 
     def get(self, path):
@@ -515,6 +522,7 @@ class Session(object):
             user_number=self.auth.user_number,
             country=self.auth.gateway.country,
             language=self.auth.gateway.language,
+            client_id=self.client_id,
         )
 
     def get_devices(self) -> List[Dict[str, Any]]:
