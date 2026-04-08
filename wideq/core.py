@@ -488,9 +488,15 @@ class Session(object):
         self.auth = auth
         self.session_id = session_id
         self.client_id = client_id
+
+    def refresh_client_id(self):
+        """Regenerate client_id as a workaround for error 9012."""
+        self.client_id = _gen_client_id()
+        LOGGER.info("Refreshed client_id after 9012 error")
+        return self.client_id
+
     def post(self, path, data=None):
         """Make a POST request to the API server.
-
         This is like `lgedm_post`, but it pulls the context for the
         request from an active Session.
         """
