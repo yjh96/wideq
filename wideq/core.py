@@ -1,6 +1,9 @@
 """A low-level, general abstraction for the LG SmartThinQ API.
 """
 import base64
+import csv
+import re
+import secrets
 import uuid
 from urllib.parse import urljoin, urlencode, urlparse, parse_qs
 import hashlib
@@ -17,7 +20,6 @@ APP_KEY = "wideq"
 SECURITY_KEY = "nuts_securitykey"
 DATA_ROOT = "lgedmRoot"
 SVC_CODE = "SVC202"
-CLIENT_ID = "LGAO221A02"
 OAUTH_SECRET_KEY = "c053c2a6ddeb7ad97cb0eed0dcb31cf8"
 OAUTH_CLIENT_KEY = "LGAO221A02"
 DATE_FORMAT = "%a, %d %b %Y %H:%M:%S +0000"
@@ -27,6 +29,15 @@ DEFAULT_LANGUAGE = "en-US"
 RETRY_COUNT = 5  # Anecdotally this seems sufficient.
 RETRY_FACTOR = 0.5
 RETRY_STATUSES = (502, 503, 504)
+
+
+def _gen_client_id() -> str:
+    return secrets.token_hex(32)
+
+
+def _gen_message_id() -> str:
+    id = base64.urlsafe_b64encode(uuid.uuid4().bytes).decode("UTF-8")
+    return re.sub("=*$", "", id)
 
 
 def get_wideq_logger() -> logging.Logger:
@@ -68,8 +79,6 @@ LOGGER = get_wideq_logger()
 
 def retry_session():
     """Get a Requests session that retries HTTP and HTTPS requests."""
-    # Adapted from:
-    # https://www.peterbe.com/plog/best-practice-with-retries-with-requests
     session = requests.Session()
     retry = Retry(
         total=RETRY_COUNT,
@@ -192,7 +201,7 @@ API_ERRORS = {
 }
 
 
-def lgedm_post(url, data=None, access_token=None, session_id=None):
+def lgedm_post(url, data=None, access_token=None, session_id=None, client_id=None):
     """Make an HTTP request in the format used by the API servers.
 
     In this format, the request POST data sent as JSON under a special
@@ -207,6 +216,8 @@ def lgedm_post(url, data=None, access_token=None, session_id=None):
         "x-thinq-application-key": APP_KEY,
         "x-thinq-security-key": SECURITY_KEY,
         "Accept": "application/json",
+        "x-message-id": _gen_message_id(),
+        "x-client-id": client_id or OAUTH_CLIENT_KEY,
     }
     if access_token:
         headers["x-thinq-token"] = access_token
@@ -242,11 +253,12 @@ def oauth_url(auth_base, country, language):
             "language": language,
             "svcCode": SVC_CODE,
             "authSvr": "oauth2",
-            "client_id": CLIENT_ID,
+            "client_id": OAUTH_CLIENT_KEY,
             "division": "ha",
             "grant_type": "password",
         }
     )
+
     return "{}?{}".format(url, query)
 
 
@@ -287,15 +299,8 @@ def refresh_auth(oauth_root, refresh_token):
         "refresh_token": refresh_token,
     }
 
-    # The timestamp for labeling OAuth requests can be obtained
-    # through a request to the date/time endpoint:
-    # https://us.lgeapi.com/datetime
-    # But we can also just generate a timestamp.
     timestamp = datetime.datetime.utcnow().strftime(DATE_FORMAT)
 
-    # The signature for the requests is on a string consisting of two
-    # parts: (1) a fake request URL containing the refresh token, and (2)
-    # the timestamp.
     req_url = (
         "/oauth2/token?grant_type=refresh_token&refresh_token=" + refresh_token
     )
@@ -377,7 +382,7 @@ class Auth(object):
         access_token, refresh_token = parse_oauth_callback(url)
         return cls(gateway, access_token, refresh_token)
 
-    def start_session(self) -> Tuple["Session", List[Dict[str, Any]]]:
+    def start_session(self, client_id=None) -> Tuple["Session", List[Dict[str, Any]]]:
         """Start an API session for the logged-in user. Return the
         Session object and a list of the user's devices.
         """
@@ -389,7 +394,7 @@ class Auth(object):
             self.gateway.language,
         )
         session_id = session_info["jsessionId"]
-        return Session(self, session_id), get_list(session_info, "item")
+        return Session(self, session_id, client_id=client_id), get_list(session_info, "item")
 
     def refresh(self):
         """Refresh the authentication, returning a new Auth object."""
@@ -407,9 +412,10 @@ class Auth(object):
 
 
 class Session(object):
-    def __init__(self, auth, session_id) -> None:
+    def __init__(self, auth, session_id, client_id=None) -> None:
         self.auth = auth
         self.session_id = session_id
+        self.client_id = client_id or OAUTH_CLIENT_KEY
 
     def post(self, path, data=None):
         """Make a POST request to the API server.
@@ -419,7 +425,7 @@ class Session(object):
         """
 
         url = urljoin(self.auth.gateway.api_root + "/", path)
-        return lgedm_post(url, data, self.auth.access_token, self.session_id)
+        return lgedm_post(url, data, self.auth.access_token, self.session_id, self.client_id)
 
     def get_devices(self) -> List[Dict[str, Any]]:
         """Get a list of devices associated with the user's account.
@@ -461,23 +467,14 @@ class Session(object):
         work_list = [{"deviceId": device_id, "workId": work_id}]
         res = self.post("rti/rtiResult", {"workList": work_list})["workList"]
 
-        # When monitoring first starts, it usually takes a few
-        # iterations before data becomes available. In the initial
-        # "warmup" phase, `returnCode` is missing from the response.
         if "returnCode" not in res:
             return None
 
-        # Check for errors.
         code = res.get("returnCode")  # returnCode can be missing.
         if code != "0000":
             raise MonitorError(device_id, code)
 
-        # The return data may or may not be present, depending on the
-        # monitoring task status.
         if "returnData" in res:
-            # The main response payload is base64-encoded binary data in
-            # the `returnData` field. This sometimes contains JSON data
-            # and sometimes other binary data.
             return base64.b64decode(res["returnData"])
         else:
             return None
@@ -532,3 +529,55 @@ class Session(object):
             },
         )
         return res["returnData"]
+
+    def get_hour_power_data(self, device_id, start_date=str, end_date=str):
+        # date format = "YYYY-MM-DD"
+
+        get_power_data_path = f"service/aircon/{device_id}/energy-history?period=hour&startDate={start_date}&endDate={end_date}"
+        return self.post(get_power_data_path)
+
+
+def save_power_data_csv(response, path):
+    """Save power data response to CSV.
+
+    Expected row keys: usedDate, energyData (Wh), operationTime.
+    """
+
+    def to_kwh(value):
+        try:
+            return float(value) / 1000.0
+        except (TypeError, ValueError):
+            return None
+
+    rows = response
+    if isinstance(response, dict):
+        if all(k in response for k in ("usedDate", "energyData", "operationTime")):
+            rows = [response]
+        else:
+            rows = None
+            for value in response.values():
+                if (
+                    isinstance(value, list)
+                    and value
+                    and isinstance(value[0], dict)
+                    and "usedDate" in value[0]
+                ):
+                    rows = value
+                    break
+            if rows is None:
+                raise ValueError("Unsupported power data response format")
+    elif not isinstance(response, list):
+        raise ValueError("Unsupported power data response format")
+
+    with open(path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["usedDate", "energyData_kWh", "operationTime"])
+        for row in rows:
+            kwh = to_kwh(row.get("energyData"))
+            writer.writerow(
+                [
+                    row.get("usedDate"),
+                    "" if kwh is None else f"{kwh:.3f}",
+                    row.get("operationTime"),
+                ]
+            )
