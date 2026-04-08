@@ -83,6 +83,7 @@ class Client(object):
         session: Optional[core.Session] = None,
         country: str = core.DEFAULT_COUNTRY,
         language: str = core.DEFAULT_LANGUAGE,
+        client_id: str = None,
     ) -> None:
         # The three steps required to get access to call the API.
         self._gateway: Optional[core.Gateway] = gateway
@@ -101,6 +102,9 @@ class Client(object):
         self._country: str = country
         self._language: str = language
 
+        # Per-session client ID (random hex, like thinq2).
+        self._client_id: str = client_id or core._gen_client_id()
+
     @property
     def gateway(self) -> core.Gateway:
         if not self._gateway:
@@ -118,7 +122,9 @@ class Client(object):
     @property
     def session(self) -> core.Session:
         if not self._session:
-            self._session, self._devices = self.auth.start_session()
+            self._session, self._devices = self.auth.start_session(
+                client_id=self._client_id
+            )
         return self._session
 
     @property
@@ -187,6 +193,9 @@ class Client(object):
         if "language" in state:
             client._language = state["language"]
 
+        if "client_id" in state:
+            client._client_id = state["client_id"]
+
         return client
 
     def dump(self) -> Dict[str, Any]:
@@ -207,12 +216,15 @@ class Client(object):
 
         out["country"] = self._country
         out["language"] = self._language
+        out["client_id"] = self._client_id
 
         return out
 
     def refresh(self) -> None:
         self._auth = self.auth.refresh()
-        self._session, self._devices = self.auth.start_session()
+        self._session, self._devices = self.auth.start_session(
+            client_id=self._client_id
+        )
 
     @classmethod
     def from_token(
