@@ -46,20 +46,11 @@ class Monitor(object):
         # in v2, the data is available only in the snapshot,
         # getting better info without querying all devices seems to require
         # mqtt
-        is_retried = False
-        for _ in range(2):
-            try:
-                devices = self.session.get_devices()
-                for device in (DeviceInfo(d) for d in devices):
-                    if device.id == self.device_id:
-                        return device.data["snapshot"]
-                raise core.DeviceNotFoundError()
-            except core.UseOfficialAPIError:
-                if is_retried:
-                    raise
-                is_retried = True
-                self.session.refresh_client_id()
-                LOGGER.warning("Retrying after 9012 error with new client_id")
+        devices = self.session.get_devices()
+        for device in (DeviceInfo(d) for d in devices):
+            if device.id == self.device_id:
+                return device.data["snapshot"]
+        raise core.DeviceNotFoundError()
 
     @staticmethod
     def decode_json(data: bytes) -> Dict[str, Any]:
@@ -469,20 +460,11 @@ class Device(object):
         self.model: ModelInfo = client.model_info(device)
 
     def _get_deviceinfo_from_snapshot(self):
-        is_retried = False
-        for _ in range(2):
-            try:
-                devices = self.client.session.get_devices()
-                for device in (DeviceInfo(d) for d in devices):
-                    if device.id == self.device.id:
-                        return device.data["snapshot"]
-                raise core.DeviceNotFoundError()
-            except core.UseOfficialAPIError:
-                if is_retried:
-                    raise
-                is_retried = True
-                self.client.session.refresh_client_id()
-                LOGGER.warning("Retrying after 9012 error with new client_id")
+        devices = self.client.session.get_devices()
+        for device in (DeviceInfo(d) for d in devices):
+            if device.id == self.device.id:
+                return device.data["snapshot"]
+        raise core.DeviceNotFoundError()
 
     def _set_control(self, key, value, command="Set", ctrlKey="basicCtrl"):
         """Set a device's control for `key` to `value`."""

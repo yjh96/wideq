@@ -496,40 +496,52 @@ class Session(object):
         return self.client_id
 
     def post(self, path, data=None):
-        """Make a POST request to the API server.
-        This is like `lgedm_post`, but it pulls the context for the
-        request from an active Session.
-        """
+        """Make a POST request to the API server."""
 
         url = urljoin(self.auth.gateway.api_root + "/", path)
-        return thinq_request(
-            RequestMethod.POST,
-            url,
-            data,
-            access_token=self.auth.access_token,
-            user_number=self.auth.user_number,
-            country=self.auth.gateway.country,
-            language=self.auth.gateway.language,
-            client_id=self.client_id,
-        )
+        try:
+            return thinq_request(
+                RequestMethod.POST, url, data,
+                access_token=self.auth.access_token,
+                user_number=self.auth.user_number,
+                country=self.auth.gateway.country,
+                language=self.auth.gateway.language,
+                client_id=self.client_id,
+            )
+        except UseOfficialAPIError:
+            self.refresh_client_id()
+            return thinq_request(
+                RequestMethod.POST, url, data,
+                access_token=self.auth.access_token,
+                user_number=self.auth.user_number,
+                country=self.auth.gateway.country,
+                language=self.auth.gateway.language,
+                client_id=self.client_id,
+            )
 
     def get(self, path):
-        """Make a GET request to the API server.
-
-        This is like `lgedm_get`, but it pulls the context for the
-        request from an active Session.
-        """
+        """Make a GET request to the API server."""
 
         url = urljoin(self.auth.gateway.api_root + "/", path)
-        return thinq_request(
-            RequestMethod.GET,
-            url,
-            access_token=self.auth.access_token,
-            user_number=self.auth.user_number,
-            country=self.auth.gateway.country,
-            language=self.auth.gateway.language,
-            client_id=self.client_id,
-        )
+        try:
+            return thinq_request(
+                RequestMethod.GET, url,
+                access_token=self.auth.access_token,
+                user_number=self.auth.user_number,
+                country=self.auth.gateway.country,
+                language=self.auth.gateway.language,
+                client_id=self.client_id,
+            )
+        except UseOfficialAPIError:
+            self.refresh_client_id()
+            return thinq_request(
+                RequestMethod.GET, url,
+                access_token=self.auth.access_token,
+                user_number=self.auth.user_number,
+                country=self.auth.gateway.country,
+                language=self.auth.gateway.language,
+                client_id=self.client_id,
+            )
 
     def get_devices(self) -> List[Dict[str, Any]]:
         """Get a list of devices associated with the user's account.
