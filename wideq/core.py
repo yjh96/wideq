@@ -194,7 +194,7 @@ class InvalidRequestError(APIError):
 
 
 class UseOfficialAPIError(APIError):
-    """Server suggests using the official public API (error 9012)."""
+    """Server suggests using the official public API (error 9006, 9012)."""
 
 
 class DeviceNotFoundError:
@@ -225,6 +225,7 @@ API_ERRORS = {
     "0110": InvalidCredentialError,
     9000: InvalidRequestError,  # Surprisingly, an integer (not a string).
     9003: NotLoggedInError,  # Session Creation FailureError
+    "9006": UseOfficialAPIError,
     "9012": UseOfficialAPIError,
 }
 
@@ -495,9 +496,9 @@ class Session(object):
         self.client_id = client_id
 
     def refresh_client_id(self):
-        """Regenerate client_id as a workaround for error 9012."""
+        """Regenerate client_id as a workaround for error 9006, 9012."""
         self.client_id = _gen_client_id()
-        LOGGER.info("Refreshed client_id after 9012 error")
+        LOGGER.info("Refreshed client_id after 9006, 9012 error")
         return self.client_id
 
     def post(self, path, data=None):
